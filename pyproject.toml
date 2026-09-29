@@ -1,0 +1,25 @@
+[project]
+name = "apollo"
+version = "0.1.0"
+description = "Apollo: a personal voice assistant for macOS (Claude + Composio + OpenAI Realtime), controlled from the notch"
+readme = "README.md"
+authors = [
+    { name = "Vibhor", email = "svibhor.2007@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=1.9.0",
+    "composio>=0.24.0",
+    "composio-anthropic>=0.24.0",
+    "openai>=3.20.0",
+    "python-dotenv>=1.2.3",
+    "rich>=15.0.0",
+    "websockets>=17.1",
+]
+
+[project.scripts]
+apollo = "apollo.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.15,<0.13.0"]
+build-backend = "uv_build"
