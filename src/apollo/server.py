@@ -42,7 +42,8 @@ class Hub:
         self.composio = self._start_composio()
         self.agent = ClaudeAgent(settings, self.mac, self.composio, self.approvals)
         self.voice = VoiceSession(settings, self, self.agent, self.mac)
-        self.dictation = Dictation(settings, self.emit)
+        self.dictation = Dictation(settings)
+        self._dictation_owner: ServerConnection | None = None
         self._background: set[asyncio.Task] = set()
 
     def _start_composio(self) -> ComposioTools | None:
@@ -109,9 +110,9 @@ class Hub:
         try:
             async for message in ws:
                 if isinstance(message, bytes):
-                    await self._on_audio(message)
+                    await self._on_audio(ws, message)
                 else:
-                    await self._on_message(json.loads(message))
+                    await self._on_message(ws, json.loads(message))
         except ConnectionClosed:
             pass
         finally:
@@ -119,19 +120,28 @@ class Hub:
             log.info("Notch disconnected")
             if self.voice.capturing:
                 await self.voice.cancel_listening()
-            if self.dictation.active:
+            if self.dictation.active and self._dictation_owner is ws:
                 await self.dictation.cancel()
 
-    async def _on_audio(self, frame: bytes) -> None:
+    async def _on_audio(self, ws: ServerConnection, frame: bytes) -> None:
         if not frame:
             return
         channel, pcm = frame[0], frame[1:]
         if channel == CH_ASSISTANT_MIC:
             await self.voice.append_audio(pcm)
-        elif channel == CH_DICTATION_MIC:
-            self.dictation.append(pcm)
+        elif channel == CH_DICTATION_MIC and ws is self._dictation_owner:
+            await self.dictation.append(pcm)
 
-    async def _on_message(self, msg: dict) -> None:
+    @staticmethod
+    def _reply_to(ws: ServerConnection):
+        async def reply(message: dict) -> None:
+            try:
+                await ws.send(json.dumps(message))
+            except ConnectionClosed:
+                pass
+        return reply
+
+    async def _on_message(self, ws: ServerConnection, msg: dict) -> None:
         kind = msg.get("type")
         try:
             match kind:
@@ -150,10 +160,13 @@ class Hub:
                 case "approval.response":
                     self.approvals.resolve(str(msg.get("id")), bool(msg.get("approved")))
                 case "dictation.start":
-                    await self.dictation.start()
-                case "dictation.stop":
+                    # Only the notch that started a dictation feeds it audio and gets the text back,
+                    # so a second connected client can never paste a duplicate.
+                    self._dictation_owner = ws
+                    await self.dictation.start(reply=self._reply_to(ws))
+                case "dictation.stop" if ws is self._dictation_owner:
                     self.spawn(self.dictation.stop())  # transcribe + polish without blocking audio
-                case "dictation.cancel":
+                case "dictation.cancel" if ws is self._dictation_owner:
                     await self.dictation.cancel()
                 case _:
                     log.debug("Ignoring message %s", kind)

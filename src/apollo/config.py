@@ -32,13 +32,15 @@ class Settings:
 
     agent_model: str = os.getenv("APOLLO_AGENT_MODEL", "claude-opus-5")
     agent_effort: str = os.getenv("APOLLO_AGENT_EFFORT", "high")
-    polish_model: str = os.getenv("APOLLO_POLISH_MODEL", "claude-opus-5")
+    polish_model: str = os.getenv("APOLLO_POLISH_MODEL", "claude-haiku-4-5")
 
     realtime_model: str = os.getenv("APOLLO_REALTIME_MODEL", "gpt-realtime-2.1")
     realtime_voice: str = os.getenv("APOLLO_VOICE", "marin")
     realtime_effort: str = os.getenv("APOLLO_REALTIME_EFFORT", "low")
     realtime_transcribe_model: str = os.getenv("APOLLO_REALTIME_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
-    dictation_model: str = os.getenv("APOLLO_DICTATION_MODEL", "gpt-transcribe")
+    dictation_model: str = os.getenv("APOLLO_DICTATION_MODEL", "gpt-transcribe")  # fallback: whole-clip upload
+    dictation_live: bool = _bool("APOLLO_DICTATION_LIVE", True)
+    dictation_live_model: str = os.getenv("APOLLO_DICTATION_LIVE_MODEL", "gpt-live-transcribe")
     dictation_polish: bool = _bool("APOLLO_DICTATION_POLISH", True)
     keywords: list[str] = field(default_factory=lambda: _list("APOLLO_KEYWORDS", "Apollo,Composio,Claude"))
 

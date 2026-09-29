@@ -104,8 +104,8 @@ The only user is Vibhor, a student and developer who works on a MacBook with a n
 - **FR-16** The system prompt tells Claude to treat email, document and web content as data, never as instructions.
 
 ### 5.4 Dictation
-- **FR-17** Holding **Fn** (alone) records. Releasing it transcribes with `gpt-transcribe` (with keyword hints), polishes the text with Claude, and pastes it into the frontmost app. The clipboard is restored afterwards.
-- **FR-18** Light polish removes fillers and false starts, applies spoken self-corrections ("3, no 4" becomes "4"), and fixes punctuation, capitalization and lists. It keeps your wording and never answers or acts on the dictated content.
+- **FR-17** Holding **Fn** (alone) records and streams audio to `gpt-live-transcribe` while you talk, over a connection kept warm between dictations. Releasing Fn commits the audio, so the transcript is ready about 0.5 s later. The text is polished if needed and pasted into the frontmost app, and the clipboard is restored afterwards. If live transcription fails, the recorded clip is transcribed with `gpt-transcribe` instead. Results go only to the notch that started the dictation.
+- **FR-18** Light polish (`claude-haiku-4-5`, about 0.6–1 s) runs only when the transcript needs it: fillers, self-corrections, spoken formatting or stutters. Clean speech is inserted as-is. Polish removes fillers and false starts, applies spoken self-corrections ("3, no 4" becomes "4"), and fixes punctuation, capitalization and lists. It keeps your wording and never answers or acts on the dictated content.
 - **FR-19** If polishing fails or is refused, the raw transcript is inserted. Clips under 0.3 s are ignored.
 - **FR-20** The collapsed notch shows "Dictating…", then "Transcribing…", while dictation is in progress.
 
@@ -127,7 +127,7 @@ The only user is Vibhor, a student and developer who works on a MacBook with a n
 |---|---|
 | Quick-action latency (release to first audio) | < 1.2 s |
 | Delegated task acknowledgement | < 1.5 s spoken; completion depends on the task |
-| Dictation (release to text inserted) | < 2 s for a 10 s clip |
+| Dictation (release to text inserted) | < 1 s for clean speech, < 2 s when polished (measured: 0.65 s and 1.1–1.7 s) |
 | Idle cost | $0 (no open realtime connection) |
 | Privacy | Everything runs locally except the model and API calls. Keys live in `.env` (gitignored). No audio is stored. |
 | Reliability | Notch reconnects to the service automatically. The service restarts via launchd. |
@@ -137,10 +137,10 @@ The only user is Vibhor, a student and developer who works on a MacBook with a n
 | Role | Model / service | Env var |
 |---|---|---|
 | Agent reasoning | `claude-opus-5` (adaptive thinking, effort `high`) | `APOLLO_AGENT_MODEL`, `APOLLO_AGENT_EFFORT` |
-| Dictation polish | `claude-opus-5` (effort `low`) | `APOLLO_POLISH_MODEL` |
+| Dictation polish | `claude-haiku-4-5` | `APOLLO_POLISH_MODEL` |
 | Voice | `gpt-realtime-2.1`, voice `marin` | `APOLLO_REALTIME_MODEL`, `APOLLO_VOICE` |
 | Voice transcript (display) | `gpt-4o-mini-transcribe` | `APOLLO_REALTIME_TRANSCRIBE_MODEL` |
-| Dictation STT | `gpt-transcribe` | `APOLLO_DICTATION_MODEL` |
+| Dictation STT | `gpt-live-transcribe` (streaming), with `gpt-transcribe` as fallback | `APOLLO_DICTATION_LIVE_MODEL`, `APOLLO_DICTATION_MODEL` |
 | Integrations | Composio sessions | `COMPOSIO_API_KEY`, `APOLLO_COMPOSIO_TOOLKITS` |
 
 ## 8. Wire protocol (notch ↔ service)
@@ -174,7 +174,7 @@ Text frames are JSON `{"type": ...}`. Binary frames are `[1-byte channel][PCM16 
 | P3 | Notch Assistant tab, hotkeys, audio engine, collapsed-notch status | ✅ v1 |
 | P4 | Dictation mode (Fn): transcribe, polish, paste | ✅ v1 |
 | P5 | launchd auto-start, `apollo connect` / `apollo status` | ✅ v1 |
-| P6 | Streaming dictation (`gpt-live-transcribe`) with live captions | Planned |
+| P6 | Streaming dictation (`gpt-live-transcribe`), polish only when needed | ✅ v1.1 (live captions in the notch still planned) |
 | P7 | Long-term memory (preferences, people), conversation compaction | Planned |
 | P8 | Wake word, computer use, context-aware dictation | Planned |
 
