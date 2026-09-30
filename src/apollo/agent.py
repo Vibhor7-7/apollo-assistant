@@ -16,7 +16,7 @@ from typing import Any, Awaitable, Callable
 from anthropic import AsyncAnthropic
 
 from .approvals import ApprovalBroker
-from .composio_tools import EXECUTE_TOOL, ComposioTools
+from .composio_tools import CONNECT_TOOL, ComposioTools
 from .config import Settings
 from .mac_tools import MacTools, validate
 
@@ -178,9 +178,10 @@ class ClaudeAgent:
             if verdict.needs_approval and not await self.approvals.request(verdict.title, verdict.detail):
                 return "The user declined this action. It was not performed."
             result = await asyncio.to_thread(self.composio.execute, name, args)
-            if name != EXECUTE_TOOL:
-                for url in self.composio.auth_links(result):
-                    await emit({"type": "link", "title": "Connect account", "url": url})
+            if name == CONNECT_TOOL:
+                for toolkit, url in self.composio.connect_links(result):
+                    title = f"Connect {toolkit.title()}" if toolkit else "Connect account"
+                    await emit({"type": "link", "title": title, "url": url})
             return result
 
         return f"Error: unknown tool '{name}'."

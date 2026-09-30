@@ -9,10 +9,10 @@ Every app action that changes something is routed through the approval broker.
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import urlsplit
 
 from composio import Composio
 from composio_anthropic import AnthropicProvider
@@ -26,6 +26,7 @@ SAFE_META_TOOLS = {
     "COMPOSIO_WAIT_FOR_CONNECTIONS",
 }
 EXECUTE_TOOL = "COMPOSIO_MULTI_EXECUTE_TOOL"
+CONNECT_TOOL = "COMPOSIO_MANAGE_CONNECTIONS"
 
 READ_VERBS = {
     "GET", "LIST", "FETCH", "SEARCH", "FIND", "READ", "RETRIEVE", "QUERY", "DESCRIBE",
@@ -37,7 +38,6 @@ WRITE_VERBS = {
     "SHARE", "PUBLISH", "MERGE", "CLOSE", "APPROVE", "SCHEDULE", "CANCEL", "ACCEPT", "DECLINE",
     "STAR", "UNSTAR", "LABEL", "MARK", "BATCH", "EXECUTE", "RUN", "TRIGGER", "REVOKE", "TRANSFER",
 }
-URL_RE = re.compile(r"https://[^\s\"'<>\\]+")
 
 
 def action_needs_approval(slug: str) -> bool:
@@ -120,8 +120,27 @@ class ComposioTools:
         return json.dumps(result, ensure_ascii=False, default=str)
 
     @staticmethod
-    def auth_links(result: str) -> list[str]:
-        return list(dict.fromkeys(URL_RE.findall(result)))
+    def connect_links(result: str) -> list[tuple[str, str]]:
+        """(toolkit, url) sign-in links from a COMPOSIO_MANAGE_CONNECTIONS result.
+
+        Only the structured `redirect_url` of each toolkit counts, and only on Composio's own
+        domain: tool results also carry user data (email bodies, calendar events) whose links
+        must never be presented as "Connect account" buttons.
+        """
+        try:
+            data = json.loads(result)
+        except ValueError:
+            return []
+        results = ((data.get("data") or {}).get("results") or {}) if isinstance(data, dict) else {}
+        items = results.values() if isinstance(results, dict) else results if isinstance(results, list) else []
+        links: list[tuple[str, str]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("redirect_url") or item.get("redirectUrl")
+            if isinstance(url, str) and _is_composio_url(url):
+                links.append((str(item.get("toolkit") or ""), url))
+        return links
 
     # ── account management (CLI) ──
 
@@ -132,3 +151,9 @@ class ComposioTools:
         kwargs = {"toolkits": self.settings.composio_toolkits} if self.settings.composio_toolkits else {}
         page = self.session.toolkits(**kwargs)
         return [(item.slug, bool(item.connection and item.connection.is_active)) for item in page.items]
+
+
+def _is_composio_url(url: str) -> bool:
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    return parts.scheme == "https" and (host == "composio.dev" or host.endswith(".composio.dev"))
