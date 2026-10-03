@@ -278,6 +278,11 @@ class VoiceSession:
             self._transcripts.pop(event.item_id, None)
             await self.hub.emit({"type": "transcript", "role": "assistant", "id": event.item_id, "text": event.transcript, "final": True})
 
+        elif kind == "input_audio_buffer.committed":
+            # The user's transcription finishes after the reply starts streaming. Reserve their
+            # slot now so the bubble sits above the reply; the transcript fills it in by id.
+            await self.hub.emit({"type": "transcript", "role": "user", "id": event.item_id, "text": "…", "final": False})
+
         elif kind == "conversation.item.input_audio_transcription.completed":
             await self.hub.emit({"type": "transcript", "role": "user", "id": event.item_id, "text": event.transcript, "final": True})
 
