@@ -9,12 +9,18 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import os
+import time
+import urllib.parse
+import urllib.request
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal
+
+from .config import settings
 
 Emit = Callable[[dict], Awaitable[None]]
 ToolOutput = str | list[dict]
@@ -148,6 +154,12 @@ class MacTools:
             Tool("spotify", "Control Spotify playback or get the current track.",
                  {"action": _str("What to do", enum=["play", "pause", "toggle", "next", "previous", "now_playing"])},
                  self.spotify, quick=True, label=lambda a: f"Spotify: {a.get('action', '')}"),
+            Tool("spotify_play", "Search Spotify and play a song, album, artist or playlist by name. "
+                 "Use this whenever the user asks for specific music; include the artist if they gave one.",
+                 {"query": _str("What to play, e.g. 'Blinding Lights The Weeknd'"),
+                  "kind": _str("What the query names (default track)", optional=True,
+                               enum=["track", "album", "artist", "playlist"])},
+                 self.spotify_play, quick=True, label=lambda a: f"Playing {a.get('query', 'music')} on Spotify"),
             Tool("add_notch_task", "Add a to-do item to the user's task list in the notch.",
                  {"title": _str("The task")}, self.add_notch_task, quick=True,
                  label=lambda a: f"Adding task: {a.get('title', '')}"),
@@ -235,6 +247,54 @@ class MacTools:
                    "next": "next track", "previous": "previous track"}[action]
         await applescript(f'tell application "Spotify" to {command}')
         return f"Spotify: {action} done."
+
+    _spotify_token: tuple[str, float] = ("", 0.0)
+
+    def _spotify_search(self, query: str, kind: str) -> tuple[str, str] | None:
+        """Blocking. (uri, "name — artist") of the top result, via the client-credentials flow."""
+        token, expires = self._spotify_token
+        if time.time() > expires - 30:
+            creds = base64.b64encode(
+                f"{settings.spotify_client_id}:{settings.spotify_client_secret}".encode()).decode()
+            req = urllib.request.Request(
+                "https://accounts.spotify.com/api/token", data=b"grant_type=client_credentials",
+                headers={"Authorization": f"Basic {creds}"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = json.load(resp)
+            token, expires = body["access_token"], time.time() + body["expires_in"]
+            self._spotify_token = (token, expires)
+        url = "https://api.spotify.com/v1/search?" + urllib.parse.urlencode({"q": query, "type": kind, "limit": 1})
+        with urllib.request.urlopen(
+                urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"}), timeout=10) as resp:
+            items = json.load(resp)[f"{kind}s"]["items"]
+        if not items or not items[0]:
+            return None
+        item = items[0]
+        artists = ", ".join(a["name"] for a in item.get("artists", []))
+        return item["uri"], item["name"] + (f" — {artists}" if artists else "")
+
+    async def spotify_play(self, query: str, kind: str = "track") -> str:
+        if not (settings.spotify_client_id and settings.spotify_client_secret):
+            # No API credentials: open Spotify's own search so the user can pick.
+            await run("open", "spotify:search:" + urllib.parse.quote(query))
+            return ("Spotify search isn't configured (SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET), "
+                    "so I opened a Spotify search instead.")
+        try:
+            found = await asyncio.to_thread(self._spotify_search, query, kind)
+        except Exception as e:
+            return f"Spotify search failed: {e}"
+        if not found:
+            return f"No Spotify {kind} found for '{query}'."
+        uri, title = found
+        if await applescript('application "Spotify" is running') != "true":
+            await run("open", "-a", "Spotify")
+            for _ in range(20):
+                await asyncio.sleep(0.5)
+                if await applescript('application "Spotify" is running') == "true":
+                    break
+            await asyncio.sleep(1.5)
+        await applescript(f'tell application "Spotify" to play track {as_string(uri)}')
+        return f"Playing {title} on Spotify."
 
     async def add_notch_task(self, title: str) -> str:
         await self.emit({"type": "notch.add_task", "title": title})

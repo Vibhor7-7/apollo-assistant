@@ -47,6 +47,9 @@ class Settings:
     composio_user_id: str = os.getenv("APOLLO_COMPOSIO_USER_ID", "vibhor")
     composio_toolkits: list[str] = field(default_factory=lambda: _list("APOLLO_COMPOSIO_TOOLKITS"))
 
+    spotify_client_id: str = os.getenv("SPOTIFY_CLIENT_ID", "")
+    spotify_client_secret: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
+
     host: str = os.getenv("APOLLO_HOST", "127.0.0.1")
     port: int = int(os.getenv("APOLLO_PORT", "8765"))
 
